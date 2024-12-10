@@ -1,0 +1,102 @@
+---
+title: "Visualizing Latitudinal Clines"
+author: "Mia Akbar"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+
+```{r setup}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+
+source("http://bit.ly/theme_pub")
+theme_set(theme_pub()) 
+
+setwd("./")
+ifelse((!dir.exists(file.path("./", "Figures"))), (dir.create(file.path("./", "Figures"))), FALSE)
+```
+
+# Load data
+
+Bootstrapped means
+
+```{r bootgraph_data}
+BootOut<-read.csv("./Data/BootOut.csv",header=T)
+```
+
+Manipulate for plotting
+
+```{r bootgraph_data}
+BootMeans<-select(BootOut,Lat,Stat,Mean=mMean,Aggregate=agMean) %>%
+  pivot_longer(cols=Mean:Aggregate,names_to="Calc_Type",values_to="BootMean")
+BootLow<-select(BootOut,Lat,Stat,Mean=mCIlow,Aggregate=agCIlow) %>%
+  pivot_longer(cols=Mean:Aggregate,names_to="Calc_Type",values_to="CI_low")
+BootUp<-select(BootOut,Lat,Stat,Mean=mCIup,Aggregate=agCIup) %>%
+  pivot_longer(cols=Mean:Aggregate,names_to="Calc_Type",values_to="CI_up")
+
+GraphDat<-full_join(BootMeans,BootLow,by=c("Lat","Stat","Calc_Type")) %>%
+  full_join(BootUp,by=c("Lat","Stat","Calc_Type"))
+```
+
+
+# Initial visualizations
+
+```{r bootgraph_vis, fig.height=8,fig.width=6}
+ggplot(aes(x=Lat,y=BootMean),data=GraphDat) +
+  geom_errorbar(aes(ymin=CI_low,ymax=CI_up),colour="#F18F01") + 
+  geom_point(alpha=0.7,colour="#048BA8") + 
+  facet_grid(Stat~Calc_Type,scales="free") + 
+  geom_smooth(method="lm",formula = y ~ x + I(x^2),se=F,colour="#99C24D") 
+```
+
+# Manuscript figures
+
+
+```{r}
+BootMeans<-read.csv("./Data/BootMeans.csv")
+GraphDat<-BootMeans[grep("CV|End",BootMeans$Trait,invert=T),]
+GraphDat<-GraphDat[GraphDat$Iter %in% c(1:99),]
+MeanDat<-GraphDat %>%
+  group_by(Trait,Lat)  %>%
+  summarize(PopMean=mean(IterMean))
+
+GraphDat$Trait <- factor(GraphDat$Trait, levels = c("Start", "Duration", "Mean", "Var", "Skew","Kurtosis"))
+
+plots <- list()
+
+for (stat_level in levels(GraphDat$Trait)) {
+  
+  data_subset <- GraphDat %>% filter(Trait == stat_level)
+  pop_subset <- MeanDat %>% filter(Trait == stat_level)
+  p <- ggplot(data = data_subset, aes(x = Lat, y = IterMean)) +
+    geom_point(colour=rgb(0,0,0,0.01),aes(group=Iter)) +
+    geom_smooth(method="lm",formula = y ~ x + I(x^2),se=F,
+              colour=rgb(0,0,0,0.01),aes(group=Iter)) +
+    geom_point(aes(x=Lat,y=PopMean),data=pop_subset, colour="#000000") +
+  geom_smooth(method="lm",formula = y ~ x + I(x^2),se=F, aes(x=Lat,y=PopMean),data=pop_subset, colour="#FF0000") +
+    theme_pub() +
+    theme(axis.title.x = element_blank())  
+  
+  
+  # Adjust the y-axis label for "Variance"
+  if (stat_level == "Var") {
+    p <- p + ylab("Variance")
+  } else {
+    p <- p + ylab(paste(stat_level))
+  }
+  
+  # Add to the list of plots
+  plots[[stat_level]] <- p
+}
+
+combined_plot <- plot_grid(plotlist = plots, ncol = 2)  
+
+final_plot <- combined_plot +
+  draw_label("Latitude", x = 0.5, y = -0.05, vjust = 0, size = 16) +
+  theme(plot.margin = margin(10, 10, 50, 10))  
+
+print(final_plot)
+```
+

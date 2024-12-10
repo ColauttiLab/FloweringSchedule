@@ -1,0 +1,173 @@
+---
+title: "8_Predictions"
+author: "Mia Akbar"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Library
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(viridis)
+```
+
+Optional code to reduce clutter:
+
+```{r}
+source("http://bit.ly/theme_pub")
+theme_set(theme_pub()) # Custom plotting theme
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) # Remove warnings about missing data
+```
+
+# Source
+
+Model taken from JP09: MC Jones and A Pewsey A (2009) Sinh-arcsinh distributions. *Biometrika* 96: 761–780. 
+
+As implemented as `sash` in the `GAMLSS` package:
+
+$$f(y|\mu,\sigma,\nu,\tau)= \frac{\tau c}{\sigma \sqrt{2 \pi} (1+z^2)^{1/2}} \exp{(-\frac{1}{2} r^2)}$$
+
+JP09 paper link: https://doi.org/10.1093/biomet/asp053
+
+The probability density function is given in Eq 2 in JP09:
+
+$$\frac{\delta C_{\epsilon,\delta}(x)}{\sqrt{2\pi(1+x^2)}}  e^{\frac{-S^2_{\epsilon,\delta}(x)}{2}}  $$
+
+where 
+
+$$C_{\epsilon,\delta}(x) = 
+\cosh[\delta \sinh^{-1}(x)-\epsilon] = 
+\sqrt{1+S^2_{\epsilon,\delta}(x)}$$
+
+Solving for $S^2_{\epsilon,\delta}$:
+
+$$S^2_{\epsilon,\delta}(x)=[\cosh(\delta \sinh^{-1}(x)-\epsilon)]^2-1$$
+
+# Mean & Variance
+
+To incorporate parameters for the mean ($\mu$) and variance ($\sigma$), we can simply substitute $x$ for $\frac{x-\mu}{\sigma}$ , yielding the full equation
+
+$$\frac{\cosh[\delta \sinh^{-1}(\frac{x-\mu}{\sigma})-\epsilon]\delta}{\sqrt{(2\pi(1+(\frac{(x-\mu)^2}{\sigma^2})}}  \times exp{\frac{[\cosh(\delta \sinh^{-1}(\frac{x-\mu}{\sigma})-\epsilon)]^2-1}{2}}  $$
+
+## Parameters
+
+Example graphs are shown below, but in general:
+
+  * $\mu$ = peak flowering
+  * $\sigma$ = flowering variance
+  * $\epsilon$ = skew paramater
+  * $\delta$ = kurtosis parameter
+  
+To help understand these parameters, the graphs below show examples with different parameter values.
+
+This is relatively easy to implement as a function in R:
+
+```{r}
+Nt<-function(t,m=0,s=1,e=0,d=1){
+  if(d < 0 | s < 0){
+    stop("delta (d) and sigma (s) must be > 0")
+    } else {
+      t<-(t-m)/s
+    Cx<-cosh(d*asinh(t)-e)
+    Sx<-(Cx^2-1)^(1/2)
+    Nt<-(2*pi*(1+t^2))^(-1/2)*
+      d*Cx*
+      exp(-Sx^2/2)
+
+    return(Nt/sum(Nt))
+    }
+}
+```
+
+
+
+# Plot
+
+```{r}
+t<-c(-1000:1000)/100
+PDat<-data.frame(t=t,
+                 Mid=Nt(t),
+                 SkewL=Nt(t,e=-1,d=1),
+                 SkewR=Nt(t,e=1,d=1),
+                 Lepto=Nt(t,e=0,d=0.5),
+                 Platy=Nt(t,e=0,d=2))
+```
+
+```{r}
+Norm<-ggplot(aes(x=t,y=Norm),data=PDat) + 
+  geom_line(colour="grey50", linewidth = 1, linetype="dotted") + 
+  ylab("Nt")
+```
+
+## Predicted differences between latitudes  
+
+### North 
+
+Early start?
+Early mean
+Low variance
+Positive skew
+No adjustment to kurtosis parameter
+
+```{r}
+t = c(-1000:250)/100
+NDat <- data.frame(t=t,
+                 Pflwr = Nt(t, m = -7.5, s=0.8, e = 0.75, d = 0.5),
+                 Lat = "North")
+```
+
+### Mid 
+
+Later start?
+Later mean
+Higher variance
+No adjustment in skew/kurtosis parameters
+
+```{r}
+t = c(-750:500)/100
+MDat <- data.frame(t=t,
+                 Pflwr = Nt(t, m = -0.75),
+                 Lat = "Mid")
+```
+
+
+### South 
+
+Later start?
+Later mean
+Higher variance
+Negative skew
+Leptokurtic
+
+```{r}
+t = c(-500:1000)/100
+SDat <- data.frame(t=t,
+                 Pflwr = Nt(t, m=5, s=2, e=-1, d = 1.5),
+                 Lat = "South")
+```
+
+### Figure 2
+
+```{r}
+Dat <- rbind(NDat,MDat,SDat)
+```
+
+
+```{r}
+PredFig <- ggplot(aes(x = t, y = Pflwr, colour = Lat), data = Dat) +
+  geom_line(aes(group=Lat), linewidth = 1) +
+  scale_color_manual(values = c("North" = "#150e38", "Mid" = "#ab337c", "South" = "#feb47b")) +
+  ylab(expression(P[t])) +
+  theme(axis.title.y = element_text(angle = 0),
+        axis.ticks = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank())
+```
+
+```{r export}
+pdf("./Figures/Fig2.pdf",width=10,height=6)
+PredFig
+dev.off()
+```
